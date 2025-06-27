@@ -9,6 +9,7 @@
 package org.telegram.messenger;
 
 import static org.telegram.messenger.LocaleController.getString;
+import static org.telegram.messenger.AndroidUtilities.lerp;
 
 import android.Manifest;
 import android.animation.Animator;

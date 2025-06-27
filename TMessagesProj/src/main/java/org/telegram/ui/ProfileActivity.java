@@ -668,6 +668,12 @@ public class ProfileActivity extends BaseFragment implements NotificationCenter.
     private boolean hoursShownMine;
 
     private int transitionIndex;
+    // [NEW] Member variables for the new header design
+    private FrameLayout headerView;
+    private LinearLayout actionButtonsLayout;
+    private SimpleTextView nameTextViewCentered, onlineTextViewCentered;
+    private final ArrayList<View> actionButtons = new ArrayList<>();
+    // End of [NEW]
     private final ArrayList<TLRPC.ChatParticipant> visibleChatParticipants = new ArrayList<>();
     private final ArrayList<Integer> visibleSortedUsers = new ArrayList<>();
     private int usersForceShowingIn = 0;
@@ -3625,12 +3631,88 @@ public class ProfileActivity extends BaseFragment implements NotificationCenter.
         avatarDrawable = new AvatarDrawable();
         avatarDrawable.setProfile(true);
 
+        // START OF REPLACEMENT BLOCK
         fragmentView.setWillNotDraw(false);
+
+// [1] Hide the old header elements we don't need anymore.
+        // The original code initialized avatarContainer, but now we must do it here before using it.
+        if (avatarContainer == null) {
+            avatarContainer = new FrameLayout(context);
+        }
+        avatarContainer.setVisibility(View.GONE);
+
+        // We can safely hide the text views as they are arrays initialized earlier.
+        for (SimpleTextView tv : nameTextView) {
+            if (tv != null) tv.setVisibility(View.GONE);
+        }
+        for (SimpleTextView tv : onlineTextView) {
+            if (tv != null) tv.setVisibility(View.GONE);
+        }
+
+// [2] Create our new header and its children.
+        headerView = new FrameLayout(context);
+
+        // Use the existing topView as our background.
+        // We must initialize it here because the original initialization was removed.
+        if (topView == null) {
+            topView = new TopView(context);
+        }
+
+        // Before adding a view to a new parent, we must ensure it's not already attached to an old one.
+        // The original code adds it to a different layout, so we check if it has a parent and remove it.
+        if (topView.getParent() != null) {
+            ((ViewGroup) topView.getParent()).removeView(topView);
+        }
+        headerView.addView(topView, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT));
+
+        // Reposition the existing avatarImage into our new header.
+        // We must initialize it here because the original initialization was moved/removed.
+        if (avatarImage == null) {
+            avatarImage = new AvatarImageView(context);
+            avatarImage.getImageReceiver().setAllowDecodeSingleFrame(true);
+        }
+
+        // Safety check before removing from a potential old parent
+        if (avatarImage.getParent() != null) {
+            ((ViewGroup) avatarImage.getParent()).removeView(avatarImage);
+        }
+
+        avatarImage.setRoundRadius(AndroidUtilities.dp(50));
+        headerView.addView(avatarImage, LayoutHelper.createFrame(100, 100, Gravity.CENTER_HORIZONTAL | Gravity.TOP, 0, 75, 0, 0));
+
+        // Create the new centered text views.
+        nameTextViewCentered = new SimpleTextView(context);
+        nameTextViewCentered.setTextColor(Color.WHITE);
+        nameTextViewCentered.setTextSize(24);
+        nameTextViewCentered.setGravity(Gravity.CENTER);
+        nameTextViewCentered.setTypeface(AndroidUtilities.bold());
+        headerView.addView(nameTextViewCentered, LayoutHelper.createFrame(LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT, Gravity.CENTER_HORIZONTAL | Gravity.TOP, 0, 185, 0, 0));
+
+        onlineTextViewCentered = new SimpleTextView(context);
+        onlineTextViewCentered.setTextColor(0xB3FFFFFF);
+        onlineTextViewCentered.setTextSize(15);
+        onlineTextViewCentered.setGravity(Gravity.CENTER);
+        headerView.addView(onlineTextViewCentered, LayoutHelper.createFrame(LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT, Gravity.CENTER_HORIZONTAL | Gravity.TOP, 0, 215, 0, 0));
+
+        // Create the action buttons container.
+        actionButtonsLayout = new LinearLayout(context);
+        actionButtonsLayout.setOrientation(LinearLayout.HORIZONTAL);
+        headerView.addView(actionButtonsLayout, LayoutHelper.createFrame(LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT, Gravity.CENTER_HORIZONTAL | Gravity.TOP, 0, 245, 0, 0));
+
+        // [3] Add our new header to the main view, behind the list.
         contentView = ((NestedFrameLayout) fragmentView);
+        contentView.addView(headerView, 0, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, AndroidUtilities.dp(320))); // Give it a fixed height for now
         contentView.needBlur = true;
         FrameLayout frameLayout = (FrameLayout) fragmentView;
 
+        // [4] Adjust the list's top padding to be below our new header
         listView = new ClippedListView(context) {
+            protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
+                // Set padding to push content below our new header.
+                setPadding(0, AndroidUtilities.dp(320), 0, getPaddingBottom());
+                super.onMeasure(widthMeasureSpec, heightMeasureSpec);
+            }
+            // END OF REPLACEMENT BLOCK
 
             private VelocityTracker velocityTracker;
 
@@ -10292,6 +10374,37 @@ public class ProfileActivity extends BaseFragment implements NotificationCenter.
             updateQrItemVisibility(true);
         }
         AndroidUtilities.runOnUIThread(this::updateEmojiStatusEffectPosition);
+
+        // [NEW] Populate our new centered header views
+        if (nameTextViewCentered != null) {
+            String name = "";
+            String status = "";
+            if (userId != 0) {
+                TLRPC.User user = getMessagesController().getUser(userId);
+                if (user != null) {
+                    name = UserObject.getUserName(user);
+                    status = LocaleController.formatUserStatus(currentAccount, user, isOnline, null);
+                }
+            } else if (chatId != 0) {
+                TLRPC.Chat chat = getMessagesController().getChat(chatId);
+                if (chat != null) {
+                    name = chat.title;
+                    status = LocaleController.formatPluralString("Members", chat.participants_count);
+                }
+            }
+            nameTextViewCentered.setText(name);
+            onlineTextViewCentered.setText(status);
+        }
+
+// [NEW] Clear and create placeholder buttons
+        if (actionButtonsLayout != null) {
+            actionButtonsLayout.removeAllViews();
+            actionButtons.clear();
+            createActionButton(R.drawable.msg_message, LocaleController.getString("Message", R.string.Message), null);
+            createActionButton(R.drawable.msg_mute, LocaleController.getString("Mute", R.string.Mute), null);
+            createActionButton(R.drawable.ic_call, LocaleController.getString("Call", R.string.Call), null);
+            createActionButton(R.drawable.profile_video, LocaleController.getString("VideoCall", R.string.VideoCall), null);
+        }
     }
 
     private void updatedPeerColor() {
@@ -14605,4 +14718,39 @@ public class ProfileActivity extends BaseFragment implements NotificationCenter.
         }
     }
 
+    // [NEW] Add this entire method at the end of the ProfileActivity class, before the last '}'
+    private void createActionButton(int iconResId, String text, View.OnClickListener listener) {
+        if (actionButtonsLayout == null) {
+            return; // Safety check
+        }
+        Context context = actionButtonsLayout.getContext();
+        if (context == null) {
+            return;
+        }
+
+        LinearLayout.LayoutParams layoutParams = new LinearLayout.LayoutParams(AndroidUtilities.dp(80), ViewGroup.LayoutParams.WRAP_CONTENT);
+        layoutParams.rightMargin = AndroidUtilities.dp(4);
+        layoutParams.leftMargin = AndroidUtilities.dp(4);
+
+        LinearLayout buttonLayout = new LinearLayout(context);
+        buttonLayout.setOrientation(LinearLayout.VERTICAL);
+        buttonLayout.setGravity(Gravity.CENTER_HORIZONTAL);
+        buttonLayout.setOnClickListener(listener);
+        buttonLayout.setBackground(Theme.createSelectorDrawable(0x22FFFFFF, 1));
+
+        ImageView iconView = new ImageView(context);
+        iconView.setImageResource(iconResId);
+        iconView.setColorFilter(new PorterDuffColorFilter(Color.WHITE, PorterDuff.Mode.SRC_IN));
+        buttonLayout.addView(iconView, LayoutHelper.createLinear(48, 48, Gravity.CENTER_HORIZONTAL));
+
+        TextView textView = new TextView(context);
+        textView.setText(text);
+        textView.setTextColor(Color.WHITE);
+        textView.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 12);
+        textView.setGravity(Gravity.CENTER_HORIZONTAL);
+        buttonLayout.addView(textView, LayoutHelper.createLinear(LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT, Gravity.CENTER_HORIZONTAL, 0, 4, 0, 0));
+
+        actionButtonsLayout.addView(buttonLayout, layoutParams);
+        actionButtons.add(buttonLayout);
+    }
 }
